@@ -1,0 +1,11 @@
+/build
+/osep.egg-info
+/*.exe
+/*.dll
+/*.raw
+/*.bin
+/*.txt
+/*.ps1
+/*.ps
+/*.js
+/*.xml

