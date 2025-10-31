@@ -3,10 +3,11 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "osep-tradecraft"
+name = "osep"
 version = "0.0.1"
 dependencies = [
-  "pycryptodome"
+  "pycryptodome",
+  "pefile"
 ]
 requires-python = ">=3.8"
 authors = [
@@ -25,4 +26,4 @@ packages = ["tradecraft"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-tradecraft = ["bin/*", "templates/*", "ssl/*"]  
+tradecraft = ["bin/*", "templates/**/*", "ssl/*"]  

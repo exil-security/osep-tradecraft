@@ -56,16 +56,16 @@ class HTTPServer:
         self.httpd.server_close()
 
 def rot_encrypt(data, key):
-    return [b+key & 0XFF for b in data]
+    return bytes(b+key & 0XFF for b in data)
 
 def rot_decrypt(data, key):
-    return [b-key & 0XFF for b in data]
+    return bytes(b-key & 0XFF for b in data)
 
 def xor_encrypt(data, key):
-    return [b^key for b in data]
+    return bytes(b^key for b in data)
 
 def xor_decrypt(data, key):
-    return [b^key for b in data]
+    return bytes(b^key for b in data)
 
 def ps_encode(command):
     return base64.b64encode(command.encode('utf-16le')).decode()
@@ -104,7 +104,7 @@ def print_info(*args, sep=' ', end='\n'):
     print(*args, sep=sep, end=end)
 
 def print_banner():
-    banner = '''\033[38;2;49;153;50m
+    banner = '''\033[38;2;50;175;50m
      ▄████▄   ██▀███   ▄▄▄        █████▒▄▄▄█████▓
     ▒██▀ ▀█  ▓██ ▒ ██▒▒████▄    ▓██   ▒ ▓  ██▒ ▓▒
     ▒▓█    ▄ ▓██ ░▄█ ▒▒██  ▀█▄  ▒████ ░ ▒ ▓██░ ▒░

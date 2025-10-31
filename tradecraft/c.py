@@ -1,13 +1,12 @@
 import pefile
-import argparse
 import os
 
 path = os.path.dirname(__file__)
 
-def dll_proxy(dll_name, dll_path):
+def dll_proxy(dll_name, dll_path, ps_command):
     with open(os.path.join(path,'templates/c/proxy.c'), 'r') as f:
         dll_code = f.read()
-    #dll_code.replace('{{SHELLCODE}}')
+    dll_code = dll_code.replace('{{CMDLINE}}', ps_command)
     
     pe = pefile.PE(dll_name)
     dll_name = os.path.basename(dll_name)
