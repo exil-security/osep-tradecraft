@@ -1,9 +1,12 @@
 import argparse
 import subprocess
-from http.server import SimpleHTTPRequestHandler
-import ssl
-import socketserver
 import base64
+import socketserver
+import ssl
+
+from http.server import SimpleHTTPRequestHandler
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 
 class ArgumentFormatter(argparse.HelpFormatter):
     def __init__(self, *args, **kwargs):
@@ -55,6 +58,10 @@ class HTTPServer:
         self.httpd.shutdown()
         self.httpd.server_close()
 
+def aes_encrypt(data, key, iv):
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return cipher.encrypt(pad(data, AES.block_size))
+
 def rot_encrypt(data, key):
     return bytes(b+key & 0XFF for b in data)
 
@@ -71,9 +78,11 @@ def ps_encode(command):
     return base64.b64encode(command.encode('utf-16le')).decode()
 
 def build(command, verbose):
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if verbose:
         print_debug(' '.join(command))
+    
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
     if 'error' in result.stdout.lower() or 'error' in result.stderr.lower():
         print_warn('Build failed:')
         print_error(' '.join(command))
