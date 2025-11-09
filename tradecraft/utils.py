@@ -3,6 +3,7 @@ import subprocess
 import base64
 import socketserver
 import ssl
+import pefile
 
 from http.server import SimpleHTTPRequestHandler
 from Crypto.Cipher import AES
@@ -16,7 +17,7 @@ class ArgumentFormatter(argparse.HelpFormatter):
     def _get_help_string(self, action):
         help_str = action.help
         if action.default is not None and action.default != argparse.SUPPRESS:
-            help_str += f" (default: {action.default})"
+            help_str += f' (default: {action.default})'
         return help_str
 
 class HTTPServer:
@@ -51,12 +52,18 @@ class HTTPServer:
             self.httpd.serve_forever()
         except KeyboardInterrupt:
             print('\r', end='')
-            print_info("Server stopping...")
+            print_info('Server stopping...')
             self.httpd.server_close()
 
     def shutdown(self):
         self.httpd.shutdown()
         self.httpd.server_close()
+
+def render(template, **variables):
+    result = template
+    for key, value in variables.items():
+        result = result.replace('{{'+key.upper()+'}}', str(value))
+    return result
 
 def aes_encrypt(data, key, iv):
     cipher = AES.new(key, AES.MODE_CBC, iv=iv)
@@ -77,6 +84,15 @@ def xor_decrypt(data, key):
 def ps_encode(command):
     return base64.b64encode(command.encode('utf-16le')).decode()
 
+def get_arch(file):
+    pe = pefile.PE(file)
+    if pe.OPTIONAL_HEADER.Magic == 0x10b:
+        return 'x32'
+    elif pe.OPTIONAL_HEADER.Magic == 0x20b:
+        return 'x64'
+    else:
+        return 'any'
+
 def build(command, verbose):
     if verbose:
         print_debug(' '.join(command))
@@ -90,6 +106,7 @@ def build(command, verbose):
             print_error(result.stdout)
         if(result.stderr):
             print_error(result.stderr)
+        input('press any button to continue ...')
         exit(-1)
 
 def print_error(string):

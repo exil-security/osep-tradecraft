@@ -39,7 +39,7 @@ namespace Craft
             foreach (var proc in Process.GetProcessesByName("{{PROCESS}}"))
             {
                 bool isWow64;
-                if (IsWow64Process(proc.Handle, out isWow64) && isWow64 == {{ARCH}})
+                if (IsWow64Process(proc.Handle, out isWow64) && isWow64 == {{ISWOW64}})
                 {
                     pid = proc.Id;
                     break;
