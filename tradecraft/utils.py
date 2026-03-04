@@ -118,7 +118,7 @@ def print_warn(*args, sep=' ', end='\n'):
     print(*args, sep=sep, end=end)
 
 def print_success(*args, sep=' ', end='\n'):
-    print('\033[1;32m[*]\033[0m ', end='')
+    print('\033[1;32m[+]\033[0m ', end='')
     print(*args, sep=sep, end=end)
 
 def print_debug(*args, sep=' ', end='\n'):

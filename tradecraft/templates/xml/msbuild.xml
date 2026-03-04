@@ -1,15 +1,15 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
-      <Reference Include="System" />
-      <Reference Include="System.Reflection" />
+      <Reference Include="System"/>
+      <Reference Include="System.Reflection"/>
     </ItemGroup>
   <Target Name="Build">
     <Craft />
   </Target>
   <UsingTask TaskName="Craft" TaskFactory="CodeTaskFactory" AssemblyFile="C:\Windows\Microsoft.Net\Framework\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll">
     <Task>
-      <Using Namespace="System"/>                                                                                                                                                                                                            
-      <Using Namespace="System.Reflection"/>  
+      <Using Namespace="System"/>
+      <Using Namespace="System.Reflection"/>
       <Code Type="Class" Language="cs">
         <![CDATA[
             using Microsoft.Build.Framework;

