@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "osep"
+name = "craft"
 version = "0.0.2"
 dependencies = [
   "pycryptodome",
@@ -19,10 +19,10 @@ readme = "README.md"
 license = "MIT"
 
 [project.scripts]
-craft = "osep:main"
+craft = "craft:main"
 
 [tool.setuptools]
-py-modules = ["osep"]
+py-modules = ["craft"]
 packages = ["tradecraft"]
 include-package-data = true
 
